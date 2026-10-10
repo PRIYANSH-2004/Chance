@@ -1,0 +1,666 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>SORRY — a story of second chances</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; color: #8fd; font: 13px ui-monospace, Menlo, monospace; overflow: hidden; }
+  body { display: flex; flex-direction: column; align-items: center; justify-content: center; }
+  canvas { width: min(100vw, calc((100vh - 46px) * 16 / 9)); width: min(100vw, calc((100dvh - 46px) * 16 / 9)); aspect-ratio: 16 / 9; background: #01070a; }
+  #bar { height: 46px; display: flex; gap: 10px; align-items: center; opacity: .8; }
+  button { background: #052a1c; color: #cfe; border: 1px solid #0a6; padding: 5px 14px; border-radius: 4px; font: inherit; cursor: pointer; }
+  button:hover { background: #0a4a30; }
+  #gate { position: fixed; inset: 0; z-index: 20; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.55); color: #fff; font: 300 44px "Helvetica Neue", Arial, sans-serif; cursor: pointer; text-shadow: 0 0 20px #3dffa0; }
+  #gate small { font-size: 20px; opacity: .7; margin-left: 14px; }
+  #ask { position: fixed; left: 50%; bottom: 70px; transform: translateX(-50%); text-align: center; opacity: 0; pointer-events: none; transition: opacity 1.2s; z-index: 5; }
+  #ask.show { opacity: 1; pointer-events: auto; }
+  #ask h2 { margin: 0 0 14px; font: 300 34px "Helvetica Neue", "Segoe UI", Arial, sans-serif; color: #fff; letter-spacing: 1px; text-shadow: 0 0 18px #ff2a4d; }
+  .qbtn { font: 600 22px "Helvetica Neue", "Segoe UI", Arial, sans-serif; padding: 12px 34px; margin: 0 10px; border-radius: 40px; transition: transform .15s, left .25s, top .25s; }
+  .qbtn { cursor: pointer; }
+  #ok { background: #e0213f; border: 1px solid #ff7a8a; color: #fff; box-shadow: 0 0 26px #ff2a4d; }
+  #ok:hover { background: #ff2a4d; }
+  #no { background: #1d2a28; border: 1px solid #4a6; color: #cfe; }
+  #no:hover, #no:focus { background: #2a3d39; border-color: #6c8; color: #fff; outline: none; }
+  #no.run { position: fixed; margin: 0; }
+  #thanks { display: none; }
+  #sent { display: block; margin-top: 8px; font: 12px ui-monospace, Menlo, monospace; color: #fff; opacity: .55; text-shadow: none; }
+  #ask.done h2, #ask.done .btns { display: none; }
+  #ask.done #thanks { display: block; font: 300 40px "Helvetica Neue", Arial, sans-serif; color: #fff; text-shadow: 0 0 22px #ff2a4d; }
+  #rot { position: fixed; inset: 0; z-index: 40; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 18px; background: #01070a; color: #dff; font: 300 24px "Helvetica Neue", Arial, sans-serif; text-align: center; padding: 24px; }
+  #rot .ph { font-size: 64px; animation: spin 2.4s ease-in-out infinite; }
+  @keyframes spin { 0%, 25% { transform: rotate(0); } 60%, 100% { transform: rotate(-90deg); } }
+  @media (orientation: portrait) and (max-width: 900px) { #rot { display: flex; } }
+  @media (max-height: 520px) {
+    #bar { display: none; }
+    canvas { width: min(100vw, 100dvh * 16 / 9); }
+    #ask { bottom: 8px; }
+    #ask h2 { font-size: 20px; margin-bottom: 8px; }
+    .qbtn { font-size: 16px !important; padding: 7px 22px !important; }
+    #ask.done #thanks { font-size: 26px; }
+    #gate { font-size: 28px; }
+  }
+</style>
+</head>
+<body>
+<canvas id="c" width="1920" height="1080"></canvas>
+<div id="rot"><div class="ph">📱</div>Please rotate your phone<br>to landscape to watch</div>
+<div id="gate">▶&nbsp; Tap to play <small>(sound on)</small></div>
+<div id="ask">
+  <h2>one last chance, bubu?</h2>
+  <div class="btns"><button id="ok" class="qbtn">OK ♥️</button><button id="no" class="qbtn">NO</button></div>
+  <div id="thanks">Thank you, my love ♥️<small id="sent">(sending…)</small></div>
+</div>
+<div id="bar">
+  <button id="replay">Replay</button>
+  <span id="status"></span>
+<audio id="aStart" src="media/start.mp3" preload="auto"></audio>
+<audio id="aNishan" src="media/mere-nishan.mp3" preload="auto"></audio>
+</div>
+
+<script>
+'use strict';
+// ============================================================================
+// SORRY — a story of second chances, told in binary.
+// People are built as anatomical silhouettes (tapered limbs, 2-bone IK walk
+// cycle, hair, dress, jacket), sampled onto a fine grid of glowing 0/1 digits.
+// Timeline lives in scene(); chapters/bubbles in render().
+// ============================================================================
+const W = 1920, H = 1080, CELL = 5, GY = 900;       // GY = ground line
+const END = 53, T_SHATTER = 26, T_HEART = 39.2;
+const MW = Math.ceil(W / CELL), MH = Math.ceil(H / CELL);
+const HB = 640, HG = 590;                           // boy / girl height in px
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const SANS = '"Helvetica Neue", "Segoe UI", Arial, sans-serif';
+const MONO = 'ui-monospace, Menlo, Consolas, monospace';
+
+// ---- small helpers ---------------------------------------------------------
+const clamp01 = u => Math.min(1, Math.max(0, u));
+const ss = (a, b, t) => { const u = clamp01((t - a) / (b - a)); return u * u * (3 - 2 * u); };
+const lerp = (a, b, u) => a + (b - a) * u;
+const mix = (a, b, u) => a.map((v, i) => lerp(v, b[i], u));
+const pulse = (a, b, t) => (t > a && t < b) ? Math.sin(Math.PI * (t - a) / (b - a)) : 0;
+function hash(a, b) {
+  let h = Math.imul(a | 0, 374761393) + Math.imul(b | 0, 668265263);
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return (h ^ (h >>> 16)) >>> 0;
+}
+function rng(seed) { return () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; }; }
+
+// ---- glyph sprites (digits pre-rendered once, drawn with drawImage) --------
+const PALS = {
+  girl: ['#0c4a2a', '#14803f', '#22b955', '#4ee37e', '#8bf7ac', '#d4ffe2'],
+  boy:  ['#0a3f66', '#0f6aa8', '#1b9ee0', '#3fd0f0', '#86f0ff', '#e0fcff'],
+  rose: ['#4a0a14', '#8a1226', '#c71f3a', '#ff3b52', '#ff7a88', '#ffd0d5'],
+  rain: ['#04321c', '#0a5a30', '#10883f', '#18b85a', '#46e888', '#e8fff0'],
+};
+const PAD = 3;
+function makeSprites(colors, w, h, font) {
+  return colors.map((col, lvl) => [0, 1].map(bit => {
+    const c = document.createElement('canvas'); c.width = w + PAD * 2; c.height = h + PAD * 2;
+    const g = c.getContext('2d');
+    g.font = font; g.textBaseline = 'top'; g.textAlign = 'center'; g.fillStyle = col;
+    if (lvl >= 3) { g.shadowColor = col; g.shadowBlur = lvl >= 5 ? 6 : 3; }
+    g.fillText(String(bit), PAD + w / 2, PAD);
+    return c;
+  }));
+}
+const SPR = {};
+for (const k of ['girl', 'boy', 'rose']) SPR[k] = makeSprites(PALS[k], CELL + 1, CELL + 3, `bold 8px ${MONO}`);
+SPR.rain = makeSprites(PALS.rain, 10, 14, `bold 13px ${MONO}`);
+const KS = [16, 22, 30, 40].map(sz => {                  // glowing red K's for the heart
+  const c = document.createElement('canvas'); c.width = c.height = sz + 40;
+  const g = c.getContext('2d');
+  g.font = `bold ${sz}px ${MONO}`; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.shadowColor = '#ff2840'; g.shadowBlur = sz * 0.7; g.fillStyle = '#ff4a5a';
+  g.fillText('K', c.width / 2, c.height / 2); g.shadowBlur = 0; g.fillStyle = '#ffb0b0';
+  g.globalAlpha = 0.55; g.fillText('K', c.width / 2, c.height / 2);
+  return c;
+});
+
+// ---- silhouette masks ------------------------------------------------------
+function mkMask() {
+  const c = document.createElement('canvas'); c.width = MW; c.height = MH;
+  return { c, x: c.getContext('2d', { willReadFrequently: true }) };
+}
+const mGirl = mkMask(), mBoy = mkMask(), mRose = mkMask();
+function beginMask(m) {
+  m.x.setTransform(1, 0, 0, 1, 0, 0); m.x.clearRect(0, 0, MW, MH);
+  m.x.scale(1 / CELL, 1 / CELL);
+  m.x.fillStyle = m.x.strokeStyle = '#fff'; m.x.lineCap = m.x.lineJoin = 'round';
+}
+const occ = new Uint8Array(MW * MH);
+// out gets ints: cellIndex*8 + brightness level (rim-lit edges, sparkly interior, scanline sweep)
+function sampleMask(m, out, t) {
+  const d = m.x.getImageData(0, 0, MW, MH).data;
+  for (let p = 0; p < occ.length; p++) occ[p] = d[p * 4 + 3] > 120 ? 1 : 0;
+  out.length = 0;
+  const sweep = Math.floor(t * 150);
+  for (let y = 1; y < MH - 1; y++) for (let x = 1; x < MW - 1; x++) {
+    const p = y * MW + x; if (!occ[p]) continue;
+    let lvl;
+    if (!occ[p + 1]) lvl = 5;
+    else if (!occ[p - 1] || !occ[p - MW] || !occ[p + MW]) lvl = 4;
+    else { const h = hash(p, 3); if (h % 100 > 66) continue; lvl = 2 + (h % 3 === 0 ? 1 : 0) + (h % 11 === 0 ? 1 : 0); }   // airy interior
+    if ((y * 5 - sweep) % 420 < 14 && lvl < 5) lvl++;
+    out.push(p * 8 + lvl);
+  }
+  return out;
+}
+function drawCells(cells, pal, t, alpha, sparks) {
+  const S = SPR[pal], fb = Math.floor(t * 4);
+  ctx.globalAlpha = alpha;
+  for (let i = 0; i < cells.length; i++) {
+    const v = cells[i], p = v >> 3, lvl = v & 7;
+    const x = (p % MW) * CELL, y = ((p / MW) | 0) * CELL;
+    const bit = (hash(p, 0) & 1) ^ ((hash(p, fb) & 7) === 0 ? 1 : 0);
+    ctx.drawImage(S[lvl][bit], x - PAD, y - PAD);
+    if (sparks && lvl >= 4 && hash(p, Math.floor(t * 2.5)) % 14 === 0) {      // drifting dust off the edges
+      const k = (t * 2.5) % 1, off = k * 26;
+      ctx.globalAlpha = alpha * (1 - k) * 0.8;
+      ctx.drawImage(S[2][bit ^ 1], x - PAD - off, y - PAD - off * 0.3 + k * 8);
+      ctx.globalAlpha = alpha;
+    }
+  }
+  ctx.globalAlpha = 1;
+}
+
+// ---- anatomical figure -----------------------------------------------------
+function ik(ax, ay, tx, ty, l1, l2, bend) {            // 2-bone IK, returns joint
+  let dx = tx - ax, dy = ty - ay, d = Math.hypot(dx, dy) || 1e-3;
+  const mx = l1 + l2 - 0.5; if (d > mx) { dx *= mx / d; dy *= mx / d; d = mx; }
+  const a = (l1 * l1 - l2 * l2 + d * d) / (2 * d), hh = Math.sqrt(Math.max(0, l1 * l1 - a * a));
+  const ux = dx / d, uy = dy / d;
+  return [ax + ux * a + bend * uy * hh, ay + uy * a - bend * ux * hh];
+}
+function limb(g, x1, y1, r1, x2, y2, r2) {
+  const dx = x2 - x1, dy = y2 - y1, d = Math.hypot(dx, dy) || 1, nx = -dy / d, ny = dx / d;
+  g.beginPath(); g.moveTo(x1 + nx * r1, y1 + ny * r1); g.lineTo(x2 + nx * r2, y2 + ny * r2);
+  g.lineTo(x2 - nx * r2, y2 - ny * r2); g.lineTo(x1 - nx * r1, y1 - ny * r1); g.closePath(); g.fill();
+  g.beginPath(); g.arc(x1, y1, r1, 0, 7); g.fill(); g.beginPath(); g.arc(x2, y2, r2, 0, 7); g.fill();
+}
+const poly = (g, pts) => { g.beginPath(); pts.forEach((p, i) => i ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1])); g.closePath(); g.fill(); };
+
+// P: x, dir (+1 right / -1 left, continuous while turning), walk (rad), amp (0..1),
+//    kneel, bow, cross, offer, hug, shake(-1..1), girl, flower, h, t
+// returns head position in world coords (for bubbles)
+function drawPerson(P, g, gr) {
+  const h = P.h, girl = P.girl, t = P.t;
+  const sgn = Math.abs(P.dir) < 0.06 ? 0.06 * Math.sign(P.dir || 1) : P.dir;
+  for (const c of gr ? [g, gr] : [g]) { c.save(); c.translate(P.x, 0); c.scale(sgn, 1); }
+  const k = P.kneel, amp = P.amp, hug = P.hug;
+
+  const bob = Math.abs(Math.sin(P.walk)) * 0.014 * h * amp;
+  const hipX = 0, hipY = lerp(GY - 0.52 * h - bob, GY - 0.27 * h, k);
+  const lean = (0.025 * amp + 0.045 * k + 0.05 * hug + 0.035 * P.bow) * h;
+  const torso = (girl ? 0.29 : 0.31) * h;
+  const sx = hipX + lean, sy = hipY - torso;                               // shoulder
+  const shake = P.shake || 0;
+  const hx = sx + 0.014 * h + (0.03 * P.bow + 0.012 * shake + 0.02 * hug) * h;
+  const hy = sy - 0.1 * h + (0.022 * P.bow + 0.012 * hug) * h;             // head centre
+  const thin = girl ? 0.86 : 1;
+
+  // legs: hip -> knee -> ankle, blended between walking and one-knee kneel
+  const AY = GY - 0.03 * h;
+  for (let s = 0; s < 2; s++) {
+    const ph = P.walk + s * Math.PI, L = 0.12 * h * amp;
+    const fx = hipX + L * Math.sin(ph) + (s ? -0.035 : 0.035) * h * (1 - amp);
+    const fy = AY - Math.max(0, Math.cos(ph)) * 0.05 * h * amp;
+    const kn = ik(hipX, hipY, fx, fy, 0.25 * h, 0.25 * h, 1);
+    const stand = [kn[0], kn[1], fx, fy];
+    const kneel = s === 0 ? [0.25 * h, GY - 0.26 * h, 0.27 * h, AY] : [-0.01 * h, GY - 0.035 * h, -0.27 * h, GY - 0.035 * h];
+    const [kx, ky, ax, ay] = mix(stand, kneel, k);
+    limb(g, hipX, hipY, 0.05 * h * thin, kx, ky, 0.034 * h * thin);
+    limb(g, kx, ky, 0.034 * h * thin, ax, ay, 0.021 * h * thin);
+    let fdx = 1, fdy = 0.22;                                                // shoe direction
+    if (s === 1 && k > 0) { const rx = ax - kx, ry = ay - ky, rl = Math.hypot(rx, ry); fdx = lerp(1, rx / rl, k); fdy = lerp(0.22, ry / rl, k); }
+    limb(g, ax, ay, 0.026 * h * thin, ax + fdx * 0.085 * h, ay + fdy * 0.085 * h * 0.5 + 0.02 * h, 0.017 * h * thin);
+  }
+
+  // torso
+  if (girl) {
+    limb(g, hipX, hipY - 0.07 * h, 0.046 * h, sx, sy + 0.035 * h, 0.05 * h);
+    g.beginPath(); g.arc(sx + 0.03 * h, sy + 0.075 * h, 0.034 * h, 0, 7); g.fill();       // bust
+    // skirt with a wind-blown, wavy hem
+    const hemY = GY - 0.24 * h - bob, sw = Math.sin(P.walk) * 0.035 * h * amp;
+    const pts = [[hipX + 0.05 * h, hipY - 0.1 * h], [hipX - 0.055 * h, hipY - 0.1 * h]];
+    for (let i = 0; i <= 10; i++) {
+      const u = i / 10, wv = Math.sin(t * 3.1 + u * 6) * 0.012 * h;
+      pts.push([lerp(hipX - 0.19 * h - 0.03 * h * amp, hipX + 0.17 * h + sw, u), hemY + wv + (1 - u) * 0.02 * h]);
+    }
+    poly(g, pts);
+    const tail = 0.01 * h + 0.03 * h * amp;                                  // trailing wisp behind
+    poly(g, [[hipX - 0.1 * h, hipY], [hipX - 0.2 * h - tail, hemY + Math.sin(t * 2.4) * 0.015 * h],
+      [hipX - 0.24 * h - tail, hemY + 0.07 * h + Math.sin(t * 2.9) * 0.02 * h], [hipX - 0.14 * h, hemY + 0.04 * h]]);
+  } else {
+    limb(g, hipX, hipY, 0.062 * h, sx, sy + 0.03 * h, 0.07 * h);
+    poly(g, [[hipX - 0.075 * h, hipY - 0.03 * h], [hipX + 0.07 * h, hipY - 0.03 * h],
+      [hipX + 0.07 * h, hipY + 0.1 * h], [hipX - 0.075 * h, hipY + 0.1 * h]]);             // jacket skirt
+    g.beginPath(); g.arc(hipX - 0.03 * h, hipY + 0.01 * h, 0.07 * h, 0, 7); g.fill();
+  }
+  g.beginPath(); g.arc(sx, sy, girl ? 0.045 * h : 0.058 * h, 0, 7); g.fill();               // shoulder
+  limb(g, sx, sy - 0.01 * h, 0.03 * h, hx - 0.005 * h, hy + 0.05 * h, 0.028 * h);          // neck
+
+  // head
+  const sq = 1 - 0.32 * Math.abs(shake);                                   // head-shake squeeze
+  g.beginPath(); g.ellipse(hx, hy, 0.052 * h * sq, 0.066 * h, 0, 0, 7); g.fill();
+  g.beginPath(); g.arc(hx + 0.018 * h * sq, hy + 0.04 * h, 0.034 * h, 0, 7); g.fill();       // jaw
+  poly(g, [[hx + 0.045 * h * sq, hy - 0.008 * h], [hx + 0.07 * h * sq, hy + 0.02 * h], [hx + 0.04 * h * sq, hy + 0.03 * h]]); // nose
+  if (girl) {
+    g.beginPath(); g.ellipse(hx - 0.008 * h, hy - 0.014 * h, 0.058 * h, 0.064 * h, 0, 0, 7); g.fill();
+    const wind = 0.2 + 0.5 * amp + Math.abs(shake) * 0.5;
+    for (let j = 0; j < 3; j++) {                                          // long flowing hair
+      let px = hx - 0.035 * h, py = hy - 0.02 * h, pr = 0.042 * h;
+      for (let i = 1; i <= 7; i++) {
+        const u = i / 7;
+        const nx = hx - 0.035 * h - u * (0.05 + j * 0.018) * h * (0.6 + wind) - Math.sin(t * 2.3 + u * 3 + j * 1.7 + shake * 2) * 0.03 * h * u;
+        const ny = hy - 0.02 * h + u * (0.23 + j * 0.03) * h + Math.sin(t * 1.9 + u * 4 + j) * 0.012 * h * u;
+        const nr = 0.034 * h * (1 - u * 0.65);
+        limb(g, px, py, pr, nx, ny, nr); px = nx; py = ny; pr = nr;
+      }
+    }
+  } else {
+    g.beginPath(); g.ellipse(hx - 0.01 * h, hy - 0.026 * h, 0.058 * h, 0.05 * h, 0, 0, 7); g.fill();
+    g.beginPath(); g.arc(hx + 0.028 * h, hy - 0.052 * h, 0.03 * h, 0, 7); g.fill();          // quiff
+  }
+
+  // arms
+  const U1 = 0.165 * h, U2 = 0.15 * h, ar = (girl ? 0.026 : 0.031) * h;
+  const sy2 = sy + 0.012 * h;
+  let rose = null;
+  for (let a = 0; a < 2; a++) {
+    const sw = Math.sin(P.walk + a * Math.PI + Math.PI);
+    let hand = [sx + sw * 0.12 * h * amp + 0.012 * h, sy2 + 0.3 * h - Math.max(0, sw) * 0.03 * h * amp], bend = -1;
+    if (P.flower && a === 0) {
+      const back = [sx - 0.07 * h, sy2 + 0.3 * h], off = [sx + 0.3 * h, sy2 + 0.1 * h];
+      hand = mix(back, off, P.offer);
+      rose = { hand, off: P.offer };
+    }
+    if (a === 1 && P.bow > 0) hand = mix(hand, [hx + 0.012 * h, hy + 0.025 * h], P.bow);
+    if (girl && P.cross > 0) hand = mix(hand, a === 0 ? [sx + 0.085 * h, sy2 + 0.135 * h] : [sx + 0.05 * h, sy2 + 0.18 * h], P.cross);
+    if (hug > 0 && !(P.flower && a === 0)) hand = mix(hand, a === 0 ? [sx + 0.2 * h, sy2 + 0.06 * h] : [sx + 0.21 * h, sy2 + 0.21 * h], hug);
+    const e = ik(sx, sy2, hand[0], hand[1], U1, U2, bend);
+    limb(g, sx, sy2, ar, e[0], e[1], ar * 0.82);
+    limb(g, e[0], e[1], ar * 0.82, hand[0], hand[1], ar * 0.6);
+    g.beginPath(); g.arc(hand[0], hand[1], ar * 0.75, 0, 7); g.fill();
+  }
+  if (rose && gr) {                                                        // the red rose
+    const [hx0, hy0] = rose.hand, o = rose.off;
+    const top = [lerp(hx0 - 0.005 * h, hx0 + 0.035 * h, o), lerp(hy0 + 0.02 * h, hy0 - 0.1 * h, o)];
+    const base = [lerp(hx0 - 0.03 * h, hx0 - 0.008 * h, o), lerp(hy0 + 0.2 * h, hy0 + 0.05 * h, o)];
+    limb(gr, base[0], base[1], 0.007 * h, top[0], top[1], 0.007 * h);
+    gr.beginPath(); gr.arc(top[0], top[1], 0.034 * h, 0, 7); gr.fill();
+  }
+
+  for (const c of gr ? [g, gr] : [g]) c.restore();
+  return { x: P.x + sgn * hx, y: hy };
+}
+
+// ---- scene timeline --------------------------------------------------------
+const GX0 = 860, B1X0 = 1260;
+function speedAmp(f, t) { return clamp01(Math.abs(f(t + 0.03) - f(t - 0.03)) / 0.06 / 110); }
+const girlWx = t => lerp(-170, GX0, ss(5, 10.5, t));
+const boy1Wx = t => lerp(2090, B1X0, ss(5, 10.5, t));
+const boy2Wx = t => lerp(-170, 740, ss(31.5, 37, t));
+function scene(t) {
+  const hug = ss(37.2, 38.8, t);
+  const girl = {
+    girl: true, h: HG, t, flower: false, kneel: 0, bow: 0, offer: 0,
+    x: girlWx(t) + 30 * hug, dir: lerp(1, -1, ss(23.5, 24.8, t)),
+    walk: girlWx(t) / (0.48 * HG) * 6.2832, amp: speedAmp(girlWx, t),
+    cross: ss(12, 12.8, t) * (1 - ss(35, 36.2, t)),
+    shake: (pulse(15.4, 17.6, t) + pulse(21.8, 23.4, t)) * Math.sin(t * 13), hug,
+  };
+  const kneel = ss(19.3, 20.8, t);
+  const boy1 = {
+    girl: false, h: HB, t, flower: true, dir: -1, hug: 0, cross: 0, shake: 0,
+    x: boy1Wx(t) - 0.09 * HB * kneel, walk: (2090 - boy1Wx(t)) / (0.48 * HB) * 6.2832 + 1, amp: speedAmp(boy1Wx, t),
+    bow: ss(12.5, 13.3, t) * (1 - ss(19, 19.6, t)), offer: ss(19.6, 21, t), kneel,
+  };
+  const boy2 = {
+    girl: false, h: HB, t, flower: false, dir: 1, kneel: 0, bow: 0, cross: 0, offer: 0, shake: 0,
+    x: boy2Wx(t) + 20 * hug, walk: (boy2Wx(t) + 170) / (0.48 * HB) * 6.2832, amp: speedAmp(boy2Wx, t), hug,
+  };
+  return { girl, boy1, boy2 };
+}
+
+// ---- rain ------------------------------------------------------------------
+function mkLayer(n, sc, spMin, spMax, lenMin, lenMax, alpha, seed) {
+  const r = rng(seed), cols = [];
+  for (let i = 0; i < n; i++) cols.push({ x: r() * W, sp: lerp(spMin, spMax, r()), off: r() * 4000, len: lenMin + Math.floor(r() * (lenMax - lenMin)), id: i + seed * 1000 });
+  return { cols, sc, alpha };
+}
+const RAIN_FAR = mkLayer(120, 0.7, 220, 380, 10, 22, 0.5, 11);
+const RAIN_MID = mkLayer(70, 1.0, 340, 560, 8, 18, 0.75, 22);
+const RAIN_NEAR = mkLayer(16, 2.1, 650, 950, 6, 11, 0.55, 33);
+function drawRain(L, t, dim) {
+  const S = SPR.rain, rw = 10 * L.sc, rh = 14 * L.sc, fb = Math.floor(t * 2);
+  for (const c of L.cols) {
+    const span = H + c.len * rh, head = ((t * c.sp + c.off) % span) - c.len * rh * 0.15;
+    for (let j = 0; j < c.len; j++) {
+      const y = head - j * rh; if (y < -rh || y > H) continue;
+      ctx.globalAlpha = L.alpha * dim * (j === 0 ? 1 : 0.9 * (1 - j / c.len));
+      const lvl = j === 0 ? 5 : Math.max(1, 4 - Math.floor(j * 4 / c.len));
+      ctx.drawImage(S[lvl][hash(c.id, Math.floor(y / rh) + fb * 31) & 1], c.x - PAD * L.sc, y - PAD * L.sc, (rw + PAD * 2 * L.sc), (rh + PAD * 2 * L.sc));
+    }
+  }
+  ctx.globalAlpha = 1;
+}
+function drawFloor(t) {
+  const g = ctx.createLinearGradient(0, GY - 30, 0, H);
+  g.addColorStop(0, 'rgba(20,180,110,.18)'); g.addColorStop(0.35, 'rgba(8,60,50,.12)'); g.addColorStop(1, 'rgba(0,10,10,0)');
+  ctx.fillStyle = g; ctx.fillRect(0, GY - 30, W, H - GY + 30);
+  const r = rng(5);                                                       // ripples from the rain
+  ctx.lineWidth = 1.5;
+  for (let i = 0; i < 26; i++) {
+    const ph = (t * 0.7 + r() * 5) % 1, x = r() * W, y = GY + 20 + r() * 150;
+    ctx.strokeStyle = `rgba(90,255,170,${0.35 * (1 - ph)})`;
+    ctx.beginPath(); ctx.ellipse(x, y, 6 + ph * 46, (6 + ph * 46) * 0.18, 0, 0, 7); ctx.stroke();
+  }
+}
+
+// ---- bubbles / captions ----------------------------------------------------
+function bubble(lines, head, dx, dy, t0, t1, t, size) {
+  const a = ss(t0, t0 + 0.35, t) * (1 - ss(t1 - 0.3, t1, t));
+  if (a <= 0) return;
+  ctx.save();
+  ctx.font = `${size}px ${SANS}`;
+  const w = Math.max(...lines.map(l => ctx.measureText(l).width)) + 60, h = lines.length * size * 1.3 + 38;
+  const cx = Math.min(W - 30 - w / 2, Math.max(30 + w / 2, head.x + dx)), cy = head.y + dy;
+  const sc = 0.85 + 0.15 * a;
+  ctx.globalAlpha = a; ctx.translate(cx, cy); ctx.scale(sc, sc);
+  ctx.fillStyle = 'rgba(2,26,24,.82)'; ctx.strokeStyle = '#7dffda'; ctx.lineWidth = 2.4;
+  ctx.shadowColor = '#3dffc0'; ctx.shadowBlur = 16;
+  const tx = Math.max(-w / 2 + 30, Math.min(w / 2 - 30, head.x - cx)) , ty = h / 2 + 46;
+  ctx.beginPath(); ctx.moveTo(tx - 16, h / 2 - 4); ctx.lineTo(tx + (head.x - cx - tx) * 0.5 + 6, ty); ctx.lineTo(tx + 22, h / 2 - 4); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.roundRect(-w / 2, -h / 2, w, h, 30); ctx.fill(); ctx.stroke();
+  ctx.shadowBlur = 0; ctx.fillStyle = '#f2fffb'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  lines.forEach((l, i) => ctx.fillText(l, 0, -h / 2 + 19 + size * 1.3 * (i + 0.5)));
+  ctx.restore();
+}
+const CHAPTERS = [
+  [5, 11.8, '1.  Two worlds become one'], [12, 19, '2.  Sorry, my love'], [19.6, 29.8, '3.  A broken heart'],
+  [31.5, 38.6, '4.  Trust me. Give me one last chance.'], [39.4, END + 1, '5.  Forever'],
+];
+function drawCaptions(t) {
+  ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
+  for (const [a, b, s] of CHAPTERS) {
+    const al = ss(a, a + 0.8, t) * (1 - ss(b - 0.8, b, t)); if (al <= 0) continue;
+    ctx.globalAlpha = al; ctx.fillStyle = '#e8fff6'; ctx.font = `28px ${SANS}`; ctx.fillText(s, 48, 66);
+  }
+  ctx.globalAlpha = 1;
+  // title card
+  const ta = ss(0.4, 1.8, t) * (1 - ss(4, 5.2, t));
+  if (ta > 0) {
+    ctx.save(); ctx.globalAlpha = ta; ctx.textAlign = 'center';
+    ctx.shadowColor = '#40ffa0'; ctx.shadowBlur = 24; ctx.fillStyle = '#dfffee';
+    ctx.font = `200 150px ${SANS}`;
+    const word = 'SORRY', gap = 46; let wTot = 0; const ws = [...word].map(c => ctx.measureText(c).width); ws.forEach(w => wTot += w + gap); wTot -= gap;
+    let x = W / 2 - wTot / 2; ctx.textAlign = 'left';
+    [...word].forEach((c, i) => { ctx.fillText(c, x, 470); x += ws[i] + gap; });
+    ctx.shadowBlur = 0; ctx.textAlign = 'center'; ctx.fillStyle = '#bfeedd';
+    ctx.font = `26px ${SANS}`; ctx.globalAlpha = ta * ss(1.2, 2.4, t);
+    let sub = 'A STORY OF SECOND CHANCES', sx = W / 2 - (sub.length * 20) / 2; ctx.textAlign = 'left';
+    [...sub].forEach((c, i) => ctx.fillText(c, sx + i * 20, 540));
+    ctx.textAlign = 'center'; ctx.font = `italic 24px Georgia, serif`; ctx.globalAlpha = ta * ss(2.4, 3.4, t);
+    ctx.fillText('For my 🐼…', W / 2, 640);
+    ctx.restore();
+  }
+}
+
+// ---- boy shatters into air -------------------------------------------------
+const girlCells = [], boyCells = [], roseCells = [], boy2Cells = [], tmpCells = [], tmpRose = [];
+let shards = null;
+function makeShards() {
+  const S = scene(T_SHATTER - 0.01);                                       // re-pose so seeking/freezing also works
+  beginMask(mBoy); beginMask(mRose); drawPerson(S.boy1, mBoy.x, mRose.x);
+  sampleMask(mBoy, tmpCells, T_SHATTER); sampleMask(mRose, tmpRose, T_SHATTER);
+  const r = rng(99), all = [];
+  let minX = 1e9, maxX = -1e9;
+  const src = [...tmpCells.map(v => [v, 'boy']), ...tmpRose.map(v => [v, 'rose'])];
+  src.forEach(([v]) => { const x = ((v >> 3) % MW) * CELL; minX = Math.min(minX, x); maxX = Math.max(maxX, x); });
+  for (const [v, pal] of src) {
+    const p = v >> 3, x = (p % MW) * CELL, y = ((p / MW) | 0) * CELL;
+    all.push({ x, y, pal, lvl: v & 7, bit: p & 1, delay: ((x - minX) / (maxX - minX + 1)) * 1.4 + r() * 0.5,
+      vx: 160 + r() * 620, vy: -50 - r() * 190, ph: r() * 6.28, rise: r() * 40 });
+  }
+  return all;
+}
+function drawShards(t) {
+  const u0 = t - T_SHATTER;
+  for (const s of shards) {
+    const u = Math.max(0, u0 - s.delay), a = 1 - clamp01(u / 3.2); if (a <= 0) continue;
+    const x = s.x + s.vx * u + 30 * Math.sin(u * 3.5 + s.ph) * Math.min(u, 2);
+    const y = s.y + s.vy * u - s.rise * u * u + 26 * Math.cos(u * 2.7 + s.ph) * Math.min(u, 2);
+    ctx.globalAlpha = a;
+    const bit = u > 0 ? hash(s.x, Math.floor(t * 10) + (s.ph * 9 | 0)) & 1 : s.bit;
+    const spr = SPR[s.pal][u > 0 ? Math.max(2, s.lvl - Math.floor(u)) : s.lvl][bit], z = u > 0 ? 1 + Math.min(u, 1) * 0.7 : 1;
+    ctx.drawImage(spr, x - PAD * z, y - PAD * z, spr.width * z, spr.height * z);
+  }
+  ctx.globalAlpha = 1;
+}
+
+// ---- heart of K's ----------------------------------------------------------
+const HEARTC = { x: 900, y: 492, s: 23.75 };
+const heartPoly = [];
+for (let i = 0; i < 240; i++) {
+  const a = i / 240 * Math.PI * 2;
+  heartPoly.push([HEARTC.x + 16 * Math.pow(Math.sin(a), 3) * HEARTC.s,
+    HEARTC.y - (13 * Math.cos(a) - 5 * Math.cos(2 * a) - 2 * Math.cos(3 * a) - Math.cos(4 * a)) * HEARTC.s]);
+}
+function inHeart(x, y) {
+  let c = false;
+  for (let i = 0, j = heartPoly.length - 1; i < heartPoly.length; j = i++) {
+    const [xi, yi] = heartPoly[i], [xj, yj] = heartPoly[j];
+    if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) c = !c;
+  }
+  return c;
+}
+const hearts = [];
+{
+  const r = rng(2024);
+  for (let i = 0; i < heartPoly.length; i += 3) {                          // bold outline
+    const [x, y] = heartPoly[i]; hearts.push({ x, y, sz: 2 + (r() > 0.4 ? 1 : 0), d: r() * 2.4, sx: (r() - 0.5) * 140, a: 1 });
+  }
+  for (let y = 190; y < 900; y += 44) for (let x = 500; x < 1300; x += 44) {    // scattered fill
+    const px = x + (r() - 0.5) * 30, py = y + (r() - 0.5) * 30;
+    if (inHeart(px, py)) hearts.push({ x: px, y: py, sz: Math.floor(r() * 3), d: r() * 2.4, sx: (r() - 0.5) * 140, a: 0.55 + r() * 0.45 });
+  }
+}
+const floatK = Array.from({ length: 46 }, (_, i) => { const r = rng(300 + i); return { x: r() * W, sp: 18 + r() * 40, off: r() * H, sz: Math.floor(r() * 2), ph: r() * 6 }; });
+function drawHeart(t) {
+  const t0 = t - T_HEART; if (t0 < 0) return;
+  const glow = ss(0, 4, t0), beat = 1 + 0.03 * Math.pow(Math.max(0, Math.sin(t * 4.6)), 6);
+  let g = ctx.createRadialGradient(900, 520, 40, 900, 520, 620);
+  g.addColorStop(0, `rgba(255,30,60,${0.38 * glow})`); g.addColorStop(0.6, `rgba(190,10,30,${0.16 * glow})`); g.addColorStop(1, 'rgba(120,0,10,0)');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  ctx.save(); ctx.translate(900, 540); ctx.scale(beat, beat); ctx.translate(-900, -540);
+  for (const k of hearts) {
+    const u = ss(k.d, k.d + 2.2, t0); if (u <= 0) continue;
+    const e = 1 - Math.pow(1 - u, 3);
+    const img = KS[k.sz], x = lerp(k.x + k.sx, k.x, e), y = lerp(k.y - 760, k.y, e);
+    ctx.globalAlpha = Math.min(1, u * 3) * k.a * (0.85 + 0.15 * Math.sin(t * 3 + k.x));
+    ctx.drawImage(img, x - img.width / 2, y - img.height / 2);
+  }
+  ctx.restore();
+  for (const f of floatK) {                                                // stray K's rising around the heart
+    const y = H - ((t * f.sp + f.off) % (H + 60)); ctx.globalAlpha = 0.45 * glow * (0.6 + 0.4 * Math.sin(t + f.ph));
+    const img = KS[f.sz]; ctx.drawImage(img, f.x - img.width / 2, y);
+  }
+  ctx.globalAlpha = 1;
+}
+
+// ---- glow + reflection -----------------------------------------------------
+const tintC = document.createElement('canvas'); tintC.width = MW; tintC.height = MH;
+const tintX = tintC.getContext('2d');
+const glowC = document.createElement('canvas'); glowC.width = MW; glowC.height = MH;
+const glowX = glowC.getContext('2d');
+const HAS_FILTER = 'filter' in ctx;
+function drawGlow(items) {                                                 // items: [mask, colour, alpha]
+  if (!HAS_FILTER) return;
+  glowX.clearRect(0, 0, MW, MH);
+  for (const [m, col, al] of items) {
+    tintX.globalCompositeOperation = 'copy'; tintX.drawImage(m.c, 0, 0);
+    tintX.globalCompositeOperation = 'source-in'; tintX.fillStyle = col; tintX.fillRect(0, 0, MW, MH);
+    glowX.globalAlpha = al; glowX.drawImage(tintC, 0, 0);
+  }
+  glowX.globalAlpha = 1;
+  ctx.save(); ctx.filter = 'blur(16px)'; ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = 0.65;
+  ctx.drawImage(glowC, 0, 0, W, H); ctx.restore();
+}
+function drawReflection(fn) {
+  ctx.save(); ctx.setTransform(1, 0, 0, -1, 0, 2 * GY);
+  ctx.beginPath(); ctx.rect(0, 0, W, GY); ctx.clip(); fn(); ctx.restore();
+  const g = ctx.createLinearGradient(0, GY, 0, GY + 330);                  // fade the reflection into the dark
+  g.addColorStop(0, 'rgba(1,7,10,.55)'); g.addColorStop(1, 'rgba(1,7,10,1)');
+  ctx.fillStyle = g; ctx.fillRect(0, GY, W, H - GY);
+}
+
+// ---- frame -----------------------------------------------------------------
+const bgGrad = ctx.createLinearGradient(0, 0, 0, H);
+bgGrad.addColorStop(0, '#010a0c'); bgGrad.addColorStop(0.8, '#03140f'); bgGrad.addColorStop(1, '#010806');
+const vig = ctx.createRadialGradient(W / 2, H / 2, H * 0.45, W / 2, H / 2, H * 1.05);
+vig.addColorStop(0, 'rgba(0,0,0,0)'); vig.addColorStop(1, 'rgba(0,0,0,.65)');
+
+function render(t) {
+  const S = scene(t);
+  ctx.fillStyle = bgGrad; ctx.fillRect(0, 0, W, H);
+  const dim = ss(0, 1.5, t) * (t > T_HEART ? 0.55 : 1);
+  drawFloor(t);
+  drawRain(RAIN_FAR, t, dim); drawRain(RAIN_MID, t, dim);
+  drawHeart(t);
+
+  const girlOn = t >= 4.6, boy1On = t >= 4.6 && t < T_SHATTER, boy2On = t >= 31.3;
+  const heads = {};
+  if (girlOn) { beginMask(mGirl); heads.girl = drawPerson(S.girl, mGirl.x, null); sampleMask(mGirl, girlCells, t); }
+  else girlCells.length = 0;
+  if (boy1On) {
+    beginMask(mBoy); beginMask(mRose);
+    heads.boy1 = drawPerson(S.boy1, mBoy.x, mRose.x); sampleMask(mBoy, boyCells, t); sampleMask(mRose, roseCells, t);
+  }
+  if (boy2On) {
+    if (!boy1On) beginMask(mRose);                                          // keep rose mask empty
+    beginMask(mBoy); heads.boy2 = drawPerson(S.boy2, mBoy.x, null); sampleMask(mBoy, boy2Cells, t);
+  }
+  if (!boy1On && !boy2On) { beginMask(mBoy); beginMask(mRose); }
+  if (t >= T_SHATTER && t < 31.3) { beginMask(mRose); }
+
+  drawGlow([[mGirl, '#27ff80', 0.55], [mBoy, '#2ab4ff', 0.55], [mRose, '#ff2a40', 0.8]]);
+
+  const boyCellsNow = boy2On ? boy2Cells : boyCells;
+  drawReflection(() => {
+    if (girlOn) drawCells(girlCells, 'girl', t, 0.3);
+    if (boy1On || boy2On) drawCells(boyCellsNow, 'boy', t, 0.3);
+  });
+
+  if (girlOn) drawCells(girlCells, 'girl', t, 1, true);
+  if (boy1On) { shards = null; drawCells(boyCells, 'boy', t, 1, true); drawCells(roseCells, 'rose', t, 1); }
+  else if (t >= T_SHATTER && t < T_SHATTER + 6) { if (!shards) shards = makeShards(); drawShards(t); }
+  if (boy2On) drawCells(boy2Cells, 'boy', t, 1, true);
+
+  drawRain(RAIN_NEAR, t, dim);
+
+  if (heads.boy1) bubble(['Sorry, my love.'], heads.boy1, 40, -150, 13.2, 18.9, t, 34);
+  if (heads.girl) {
+    bubble(['NO.'], heads.girl, -120, -125, 15.5, 19, t, 34);
+    bubble(['NO.'], heads.girl, 110, -125, 21.8, 24.2, t, 34);
+  }
+  if (heads.boy2) bubble(['Trust me.', 'Give me one last chance.'], heads.boy2, 150, -150, 32.5, 37.6, t, 32);
+
+  ctx.fillStyle = vig; ctx.fillRect(0, 0, W, H);
+  drawCaptions(t);
+}
+
+const status = document.getElementById('status');
+// ---- soundtrack: start.mp3 -> (boy vanishes) -> mere-nishan.mp3 ---------------
+const TRACKS = [
+  { el: document.getElementById('aStart'),  at: 0,         fadeIn: 1.5, fadeOutAt: T_SHATTER - 0.5, fadeOutLen: 2 },
+  { el: document.getElementById('aNishan'), at: T_SHATTER, fadeIn: 0.6, fadeOutAt: END - 2,         fadeOutLen: 2 },
+];
+let soundOn = false;                                   // browsers need one click/keypress before audio may play
+function syncAudio(t, running) {
+  for (const k of TRACKS) {
+    const el = k.el, local = t - k.at, live = running && soundOn && local >= 0 && local < (el.duration || 1e9);
+    if (!live) { if (!el.paused) el.pause(); continue; }
+    el.volume = clamp01(Math.min(local / k.fadeIn, 1 - (t - k.fadeOutAt) / k.fadeOutLen));
+    if (el.paused) { if (Math.abs(el.currentTime - local) > 0.3) el.currentTime = local; el.play().catch(() => { soundOn = false; showHint(); }); }
+    else if (Math.abs(el.currentTime - local) > 1.5 && performance.now() - (k.lastSeek || 0) > 3000) { k.lastSeek = performance.now(); el.currentTime = local; }  // only fix big drift; frequent seeks make mp3s stutter
+  }
+}
+function showHint() { status.textContent = soundOn ? '' : '🔈 click anywhere to turn the sound on'; }
+function enableSound() { if (!soundOn) { soundOn = true; showHint(); } }
+addEventListener('pointerdown', enableSound); addEventListener('keydown', enableSound);
+
+// ---- "one last chance, bubu?" buttons -----------------------------------------
+// ntfy.sh push notification: install the ntfy app and subscribe to this topic. Keep the topic secret —
+// anyone who knows it can read/post to it. Change it to your own random string.
+const NTFY_TOPIC = 'bubu-YyJ9bCidgsgsNXGh';
+const NOTIFY_EMAIL = 'priyanshsingh.pr@gmail.com';   // emailed via FormSubmit (address is visible in the page source)
+const ASK_AT = 43;
+const ask = document.getElementById('ask'), okBtn = document.getElementById('ok'), noBtn = document.getElementById('no');
+let dodges = 0, notified = false;
+function dodge(e) {
+  e.preventDefault(); e.stopPropagation();
+  dodges++;
+  if (noBtn.parentNode !== document.body) {          // #ask is transformed, which would trap position:fixed — move out, leave a spacer
+    const ph = document.createElement('span'); ph.style.cssText = `display:inline-block;width:${noBtn.offsetWidth + 20}px;height:1px`;
+    noBtn.parentNode.insertBefore(ph, noBtn); document.body.appendChild(noBtn); noBtn.style.zIndex = 30;
+    noBtn.style.transition = 'left .25s, top .25s, transform .15s';
+  }
+  noBtn.classList.add('run');
+  const r = noBtn.getBoundingClientRect(), pad = 12, bw = noBtn.offsetWidth, bh = noBtn.offsetHeight;
+  let x, y, tries = 0;
+  do {                                               // jump somewhere new, away from where it was
+    x = pad + Math.random() * Math.max(0, innerWidth - bw - pad * 2);
+    y = pad + Math.random() * Math.max(0, innerHeight - bh - pad * 2);
+  } while (Math.hypot(x - r.left, y - r.top) < 220 && ++tries < 20);
+  noBtn.style.left = x + 'px'; noBtn.style.top = y + 'px';
+  noBtn.style.transform = `scale(${Math.max(0.55, 1 - dodges * 0.04)})`;
+  okBtn.style.transform = `scale(${Math.min(1.5, 1 + dodges * 0.05)})`;
+}
+['pointerenter', 'pointerdown', 'touchstart', 'click', 'focus'].forEach(ev => noBtn.addEventListener(ev, dodge, { passive: false }));
+async function post(url, opts) {                    // retry a few times if the network hiccups
+  for (let i = 0; i < 3; i++) {
+    try { const res = await fetch(url, opts); if (res.ok) return true; } catch (_) {}
+    await new Promise(r => setTimeout(r, 1500 * (i + 1)));
+  }
+  return false;
+}
+async function notify() {
+  if (notified) return; notified = true;
+  const when = new Date().toLocaleString(), msg = 'She said OK ♥️ — "one last chance, bubu?"';
+  const [push, mail] = await Promise.all([                // push to the ntfy app + email via FormSubmit
+    post('https://ntfy.sh/' + NTFY_TOPIC, { method: 'POST', body: msg + '  (' + when + ')', headers: { Title: 'Bubu said OK', Tags: 'heart,tada', Priority: 'high' } }),
+    post('https://formsubmit.co/ajax/' + NOTIFY_EMAIL, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ _subject: 'Bubu said OK ♥️', message: msg, time: when }) }),
+  ]);
+  if (push || mail) document.getElementById('sent').textContent = '(response sent)';
+  else { document.getElementById('sent').textContent = "(couldn't send — check connection)"; notified = false; }
+}
+okBtn.addEventListener('click', () => { ask.classList.add('done'); notify(); });
+function updateAsk(t) { const on = t >= ASK_AT; ask.classList.toggle('show', on); noBtn.style.visibility = on && !ask.classList.contains('done') ? 'visible' : 'hidden'; }
+
+// ---- playback ----------------------------------------------------
+const fixed = parseFloat(new URLSearchParams(location.search).get('t'));      // ?t=14.5 freezes a frame
+let start = performance.now(), raf = 0;
+function loop(now) {
+  const t = Number.isFinite(fixed) ? fixed : Math.min(END, (now - start) / 1000);
+  render(t); updateAsk(t);
+  if (!Number.isFinite(fixed)) syncAudio(t, t < END);
+  if (Number.isFinite(fixed) || t < END) raf = requestAnimationFrame(loop);
+}
+function replay() { start = performance.now(); shards = null; TRACKS.forEach(k => { k.el.pause(); k.lastSeek = 0; }); cancelAnimationFrame(raf); raf = requestAnimationFrame(loop); }
+document.getElementById('replay').onclick = replay;
+if (Number.isFinite(fixed)) { document.getElementById('gate').remove(); raf = requestAnimationFrame(loop); }
+else {                                                  // wait for one click so picture and music start together
+  render(0); TRACKS.forEach(k => k.el.load());
+  document.getElementById('gate').onclick = () => {
+    document.getElementById('gate').remove(); enableSound(); replay();
+    try { document.documentElement.requestFullscreen?.().then(() => screen.orientation?.lock?.('landscape')).catch(() => {}); } catch (_) {}
+  };
+}
+</script>
+</body>
+</html>
