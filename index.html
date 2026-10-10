@@ -32,7 +32,8 @@
   @keyframes spin { 0%, 25% { transform: rotate(0); } 60%, 100% { transform: rotate(-90deg); } }
   @media (orientation: portrait) and (max-width: 900px) { #rot { display: flex; } }
   @media (max-height: 520px) {
-    #bar { display: none; }
+    #bar { position: fixed; top: max(6px, env(safe-area-inset-top)); right: max(6px, env(safe-area-inset-right)); height: auto; z-index: 6; }
+    #bar button { padding: 3px 10px; font-size: 12px; }
     canvas { width: min(100vw, 100dvh * 16 / 9); }
     #ask { bottom: 8px; }
     #ask h2 { font-size: 20px; margin-bottom: 8px; }
@@ -44,7 +45,7 @@
 </head>
 <body>
 <canvas id="c" width="1920" height="1080"></canvas>
-<div id="rot"><div class="ph">📱</div>Please rotate your phone<br>to landscape to watch</div>
+<div id="rot"><div class="ph">📱</div>Please rotate your phone<br>cutie</div>
 <div id="gate">▶&nbsp; Tap to play <small>(sound on)</small></div>
 <div id="ask">
   <h2>one last chance, bubu?</h2>
@@ -628,13 +629,23 @@ async function post(url, opts) {                    // retry a few times if the 
   }
   return false;
 }
+async function where() {                           // coarse, IP-based location (city/region/country) — no permission prompt
+  try {
+    const res = await fetch('https://ipapi.co/json/', { signal: AbortSignal.timeout(4000) });
+    if (!res.ok) return 'unknown';
+    const g = await res.json();
+    const place = [g.city, g.region, g.country_name].filter(Boolean).join(', ');
+    return (place || 'unknown') + (g.ip ? ' (IP ' + g.ip + ')' : '');
+  } catch (_) { return 'unknown'; }
+}
 async function notify() {
   if (notified) return; notified = true;
-  const when = new Date().toLocaleString(), msg = 'She said OK ♥️ — "one last chance, bubu?"';
+  const when = new Date().toLocaleString(), msg = 'She responded okay';
+  const location = await where();
   const [push, mail] = await Promise.all([                // push to the ntfy app + email via FormSubmit
-    post('https://ntfy.sh/' + NTFY_TOPIC, { method: 'POST', body: msg + '  (' + when + ')', headers: { Title: 'Bubu said OK', Tags: 'heart,tada', Priority: 'high' } }),
+    post('https://ntfy.sh/' + NTFY_TOPIC, { method: 'POST', body: msg + '  (' + when + ', ' + location + ')', headers: { Title: 'Bubu said OK', Tags: 'heart,tada', Priority: 'high' } }),
     post('https://formsubmit.co/ajax/' + NOTIFY_EMAIL, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify({ _subject: 'Bubu said OK ♥️', message: msg, time: when }) }),
+      body: JSON.stringify({ _subject: 'Bubu said OK ♥️', message: msg, time: when, location }) }),
   ]);
   if (push || mail) document.getElementById('sent').textContent = '(response sent)';
   else { document.getElementById('sent').textContent = "(couldn't send — check connection)"; notified = false; }
