@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>SORRY — a story of second chances</title>
+<title>SORRY — a story of second chance</title>
 <style>
   html, body { margin: 0; height: 100%; background: #000; color: #8fd; font: 13px ui-monospace, Menlo, monospace; overflow: hidden; }
   body { display: flex; flex-direction: column; align-items: center; justify-content: center; }
@@ -48,7 +48,7 @@
 <div id="rot"><div class="ph">📱</div>Please rotate your phone<br>cutie</div>
 <div id="gate">▶&nbsp; Tap to play <small>(sound on)</small></div>
 <div id="ask">
-  <h2>one last chance, bubu?</h2>
+  <h2>ek mauka, bubu?</h2>
   <div class="btns"><button id="ok" class="qbtn">OK ♥️</button><button id="no" class="qbtn">NO</button></div>
   <div id="thanks">Thank you, my love ♥️<small id="sent">(sending…)</small></div>
 </div>
@@ -382,8 +382,8 @@ function bubble(lines, head, dx, dy, t0, t1, t, size) {
   ctx.restore();
 }
 const CHAPTERS = [
-  [5, 11.8, '1.  Two worlds become one'], [12, 19, '2.  Sorry, my love'], [19.6, 29.8, '3.  A broken heart'],
-  [31.5, 38.6, '4.  Trust me. Give me one last chance.'], [39.4, END + 1, '5.  Forever'],
+  [5, 11.8, '1.  Two worlds become one'], [12, 19, '2.  Sorry, my love'], [19.6, 29.8, '3. Try Regaining Trust'],
+  [31.5, 38.6, '4.  Trust me. Give me one chance.'], [39.4, END + 1, '5.  Forever'],
 ];
 function drawCaptions(t) {
   ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
@@ -403,7 +403,7 @@ function drawCaptions(t) {
     [...word].forEach((c, i) => { ctx.fillText(c, x, 470); x += ws[i] + gap; });
     ctx.shadowBlur = 0; ctx.textAlign = 'center'; ctx.fillStyle = '#bfeedd';
     ctx.font = `26px ${SANS}`; ctx.globalAlpha = ta * ss(1.2, 2.4, t);
-    let sub = 'A STORY OF SECOND CHANCES', sx = W / 2 - (sub.length * 20) / 2; ctx.textAlign = 'left';
+    let sub = 'A STORY OF SECOND CHANCE', sx = W / 2 - (sub.length * 20) / 2; ctx.textAlign = 'left';
     [...sub].forEach((c, i) => ctx.fillText(c, sx + i * 20, 540));
     ctx.textAlign = 'center'; ctx.font = `italic 24px Georgia, serif`; ctx.globalAlpha = ta * ss(2.4, 3.4, t);
     ctx.fillText('For my 🐼…', W / 2, 640);
@@ -568,7 +568,7 @@ function render(t) {
     bubble(['NO.'], heads.girl, -120, -125, 15.5, 19, t, 34);
     bubble(['NO.'], heads.girl, 110, -125, 21.8, 24.2, t, 34);
   }
-  if (heads.boy2) bubble(['Trust me.', 'Give me one last chance.'], heads.boy2, 150, -150, 32.5, 37.6, t, 32);
+  if (heads.boy2) bubble(['Trust me.', 'Give me one chance.'], heads.boy2, 150, -150, 32.5, 37.6, t, 32);
 
   ctx.fillStyle = vig; ctx.fillRect(0, 0, W, H);
   drawCaptions(t);
@@ -594,7 +594,7 @@ function showHint() { status.textContent = soundOn ? '' : '🔈 click anywhere t
 function enableSound() { if (!soundOn) { soundOn = true; showHint(); } }
 addEventListener('pointerdown', enableSound); addEventListener('keydown', enableSound);
 
-// ---- "one last chance, bubu?" buttons -----------------------------------------
+// ---- "one chance, bubu?" buttons -----------------------------------------
 // ntfy.sh push notification: install the ntfy app and subscribe to this topic. Keep the topic secret —
 // anyone who knows it can read/post to it. Change it to your own random string.
 const NTFY_TOPIC = 'bubu-YyJ9bCidgsgsNXGh';
@@ -661,6 +661,10 @@ function loop(now) {
   render(t); updateAsk(t);
   if (!Number.isFinite(fixed)) syncAudio(t, t < END);
   if (Number.isFinite(fixed) || t < END) raf = requestAnimationFrame(loop);
+  else exitFull();
+}
+function exitFull() {                                   // video finished — leave fullscreen and release the landscape lock
+  try { screen.orientation?.unlock?.(); if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {}); } catch (_) {}
 }
 function replay() { start = performance.now(); shards = null; TRACKS.forEach(k => { k.el.pause(); k.lastSeek = 0; }); cancelAnimationFrame(raf); raf = requestAnimationFrame(loop); }
 document.getElementById('replay').onclick = replay;
